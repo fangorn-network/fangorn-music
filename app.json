@@ -30,7 +30,7 @@
  },
  "sources": [
   { "namespace": "audius-tracks",
-    "command": ["${PYTHON:-.venv/bin/python}", "sources/audius_dump.py",
+    "command": ["python3", "sources/audius_dump.py",
                 "--output-dir", ".ship/stage/audius-tracks", "--cache-dir", ".ship/cache/audius-tracks"] }
  ]
 }

@@ -1,4 +1,4 @@
 .ship/*
 !.ship/state.json
 node_modules/
-.venv/
+__pycache__/

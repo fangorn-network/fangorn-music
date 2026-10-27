@@ -4,19 +4,23 @@ A snapshot source. One streaming pass over the dump (~27 GB gzipped, plain SQL) 
 the catalog tables' COPY blocks into a small cache, keyed by the dump's ETag, so a rerun on
 the same dump never downloads again. Nothing outside those tables is read.
 
-    python sources/audius_dump.py --output-dir .ship/stage/tracks --cache-dir .ship/cache/tracks
+    python3 sources/audius_dump.py --output-dir .ship/stage/audius-tracks --cache-dir .ship/cache/audius-tracks
+        [--publish --namespace audius-tracks [--fangorn-bin fangorn]]
+
+It stages what westmarch-ship reads (`<output-dir>/volume_1_tracks.json`, `[{name, fields}]`);
+with --publish it also commits that snapshot into the namespace and pushes it.
 """
+import argparse
 import gzip
 import heapq
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import urllib.request
-
-from quickbeam import SourceBase
 
 TAG = "fangorn-music.track.v1"
 DUMP = "https://audius-pgdump.s3-us-west-2.amazonaws.com/discProvProduction.sql.gz"
@@ -168,58 +172,86 @@ def track_record(t, u, plays, counts, slug):
     }}
 
 
-class AudiusDumpSource(SourceBase):
-    name = "audius"
-    stems = {TAG: "tracks"}
-    snapshot_stems = {"tracks"}
+def load(dump_url, cache_dir, limit):
+    """The extract for the dump's current ETag: from the cache, or one streaming pass."""
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, "extract.json.gz")
+    req = urllib.request.Request(dump_url, method="HEAD")
+    etag = urllib.request.urlopen(req, timeout=60).headers["ETag"].strip('"')
+    if os.path.exists(path):
+        with gzip.open(path, "rt") as f:
+            cache = json.load(f)
+        if cache["etag"] == etag and cache["limit"] >= limit:
+            print(f"[audius] cache hit for dump {etag}")
+            return cache
+    print(f"[audius] streaming {dump_url} ({etag})")
+    unzip = shutil.which("pigz") or "gzip"
+    curl = subprocess.Popen(["curl", "-sfL", dump_url], stdout=subprocess.PIPE)
+    gz = subprocess.Popen([unzip, "-dc"], stdin=curl.stdout, stdout=subprocess.PIPE)
+    curl.stdout.close()
+    cache = {"etag": etag, "limit": limit, **extract(gz.stdout, limit)}
+    if gz.wait() or curl.wait():
+        raise SystemExit(f"[audius] download failed (curl {curl.returncode}, gunzip {gz.returncode})")
+    with gzip.open(path + ".tmp", "wt") as f:
+        json.dump(cache, f)
+    os.replace(path + ".tmp", path)
+    return cache
 
-    def add_source_args(self, p):
-        p.add_argument("--dump-url", default=DUMP)
-        p.add_argument("--cache-dir", default=".ship/cache/tracks")
-        p.add_argument("--limit", type=int, default=50_000, help="tracks kept, by plays")
 
-    def read(self, cursor, args):
-        os.makedirs(args.cache_dir, exist_ok=True)
-        path = os.path.join(args.cache_dir, "extract.json.gz")
-        req = urllib.request.Request(args.dump_url, method="HEAD")
-        etag = urllib.request.urlopen(req, timeout=60).headers["ETag"].strip('"')
-        if os.path.exists(path):
-            with gzip.open(path, "rt") as f:
-                cache = json.load(f)
-            if cache["etag"] == etag and cache["limit"] >= args.limit:
-                print(f"[audius] cache hit for dump {etag}")
-                return self._select(cache, args.limit)
-        print(f"[audius] streaming {args.dump_url} ({etag})")
-        unzip = shutil.which("pigz") or "gzip"
-        curl = subprocess.Popen(["curl", "-sfL", args.dump_url], stdout=subprocess.PIPE)
-        gz = subprocess.Popen([unzip, "-dc"], stdin=curl.stdout, stdout=subprocess.PIPE)
-        curl.stdout.close()
-        cache = {"etag": etag, "limit": args.limit, **extract(gz.stdout, args.limit)}
-        if gz.wait() or curl.wait():
-            raise SystemExit(f"[audius] download failed (curl {curl.returncode}, gunzip {gz.returncode})")
-        with gzip.open(path + ".tmp", "wt") as f:
-            json.dump(cache, f)
-        os.replace(path + ".tmp", path)
-        return self._select(cache, args.limit)
+def select(cache, limit):
+    """The top `limit` eligible tracks by plays, as records. Wallets stay in the cache (for
+    artists claiming later); none reach a record."""
+    users, plays = cache["users"], cache["plays"]
+    ok = [t for t in cache["tracks"].values() if eligible(t, users.get(t["owner_id"]))]
+    top = heapq.nlargest(limit, ok, key=lambda t: (plays.get(t["track_id"], 0), t["track_id"]))
+    print(f"[audius] {len(ok)} eligible of {len(cache['tracks'])}; kept {len(top)}")
+    return [track_record(t, users[t["owner_id"]], plays.get(t["track_id"], 0),
+                         cache["counts"].get(t["track_id"]), cache["routes"].get(t["track_id"]))
+            for t in top]
 
-    def _select(self, cache, limit):
-        """The top `limit` eligible tracks by plays, each with its artist joined in."""
-        users, plays = cache["users"], cache["plays"]
-        ok = [t for t in cache["tracks"].values() if eligible(t, users.get(t["owner_id"]))]
-        top = heapq.nlargest(limit, ok, key=lambda t: (plays.get(t["track_id"], 0), t["track_id"]))
-        print(f"[audius] {len(ok)} eligible of {len(cache['tracks'])}; kept {len(top)}")
-        return [{"t": t, "u": users[t["owner_id"]], "plays": plays.get(t["track_id"], 0),
-                 "counts": cache["counts"].get(t["track_id"]), "slug": cache["routes"].get(t["track_id"])}
-                for t in top]
 
-    def build_graph(self, records):
-        # Wallets stay in the cache (for artists claiming later); none reach a record.
-        return {TAG: [track_record(**r) for r in records]}, []
+def publish(records, namespace, fangorn_bin, repo_dir):
+    """The snapshot as the namespace's whole state (--replace drops tracks that left the top),
+    committed and pushed by the fangorn CLI from the repo's own directory."""
+    os.makedirs(repo_dir, exist_ok=True)
+    batch = os.path.abspath(os.path.join(repo_dir, "batch.json"))
+    with open(batch, "w") as f:
+        json.dump({"records": [{"id": r["name"], "type": TAG, "payload": r["fields"]} for r in records]}, f)
+    cli = shlex.split(fangorn_bin)
+    for step in (["repo", "init", namespace],
+                 ["commit", batch, "-m", f"audius dump: top {len(records)} tracks", "--replace"],
+                 ["push"]):
+        print(f"[audius] $ {' '.join(cli + step)}")
+        if subprocess.run(cli + step, cwd=repo_dir).returncode:
+            raise SystemExit(f"[audius] fangorn {step[0]} failed")
+    print(f"[audius] published {len(records)} tracks to {namespace}")
 
-    def next_cursor(self, records, prev):
-        return prev
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--output-dir", required=True)
+    p.add_argument("--cache-dir", required=True)
+    p.add_argument("--dump-url", default=DUMP)
+    p.add_argument("--limit", type=int, default=50_000, help="tracks kept, by plays")
+    p.add_argument("--publish", action="store_true")
+    p.add_argument("--namespace")
+    p.add_argument("--fangorn-bin", default="fangorn")
+    p.add_argument("--replace", action="store_true", help="accepted from westmarch-ship; every publish replaces")
+    args = p.parse_args(argv)
+    if args.publish and not args.namespace:
+        p.error("--publish needs --namespace")
+
+    records = select(load(args.dump_url, args.cache_dir, args.limit), args.limit)
+    os.makedirs(args.output_dir, exist_ok=True)
+    stage = os.path.join(args.output_dir, "volume_1_tracks.json")
+    with open(stage + ".tmp", "w") as f:
+        json.dump(records, f)
+    os.replace(stage + ".tmp", stage)
+    print(f"[audius] staged {len(records)} tracks → {stage}")
+    if args.publish:
+        publish(records, args.namespace, args.fangorn_bin,
+                os.path.join(args.cache_dir, "repo", args.namespace))
 
 
 if __name__ == "__main__":
-    from quickbeam.ingest.scrapers.harness import run_source
-    run_source(AudiusDumpSource(), sys.argv[1:])
+    main()

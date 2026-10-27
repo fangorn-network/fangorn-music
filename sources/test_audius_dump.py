@@ -4,7 +4,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from audius_dump import AudiusDumpSource, TAG, extract, unescape
+import json
+import tempfile
+from audius_dump import TAG, extract, main, select, unescape
 
 T = "\t"
 TRACK_COLS = ["track_id", "is_current", "is_delete", "owner_id", "title", "tags", "genre", "mood",
@@ -48,11 +50,9 @@ assert set(cache["plays"]) == {"1", "2", "3", "4"}, cache["plays"]
 assert "5" not in cache["tracks"] and cache["routes"] == {"1": "sunny-drive"}
 assert cache["users"]["10"]["wallet"] == "0xWALLET"     # kept locally, for claims
 
-src = AudiusDumpSource()
-picked = src._select({**cache, "counts": {}}, limit=10)
-assert [r["t"]["title"] for r in picked] == ["Sunny Drive"], [r["t"]["title"] for r in picked]
-nodes, edges = src.build_graph(picked)
-rec = nodes[TAG][0]
+nodes = select({**cache, "counts": {}}, limit=10)
+assert [r["fields"]["title"] for r in nodes] == ["Sunny Drive"], nodes
+rec = nodes[0]
 f = rec["fields"]
 assert rec["name"] == f["track_id"] == "audius:track:1"
 assert f["url"] == "https://audius.co/dj_sun/sunny-drive" and f["bpm"] == 124 and f["plays"] == 900
@@ -60,4 +60,25 @@ assert f["tags"] == ["summer", "beach", "chill"] and f["release_date"] == "2024-
 assert f["text"].startswith("An upbeat Electronic track. Tagged summer, beach, chill. Club tempo, 124 BPM in A minor."), f["text"]
 assert "line one line two" in f["text"] and "Sunny Drive" not in f["text"]
 assert "WALLET" not in str(nodes) and "secret" not in str(nodes)
+
+# --publish: stage, then repo init → commit --replace → push, with the batch in the CLI's shape.
+with tempfile.TemporaryDirectory() as d:
+    import gzip
+    os.makedirs(f"{d}/cache")
+    with gzip.open(f"{d}/cache/extract.json.gz", "wt") as fh:
+        json.dump({**cache, "counts": {}, "etag": "E", "limit": 10}, fh)
+    fake = f"{d}/fangorn"
+    with open(fake, "w") as fh:
+        fh.write("#!/bin/sh\necho \"$@\" >> " + d + "/calls\n"
+                 "[ \"$1\" = commit ] && cp \"$2\" " + d + "/sent.json\nexit 0\n")
+    os.chmod(fake, 0o755)
+    import audius_dump, urllib.request
+    audius_dump.urllib.request.urlopen = lambda *a, **k: type("R", (), {"headers": {"ETag": '"E"'}})()
+    main(["--output-dir", f"{d}/stage", "--cache-dir", f"{d}/cache", "--limit", "10",
+          "--publish", "--namespace", "ns", "--fangorn-bin", fake])
+    calls = open(f"{d}/calls").read().splitlines()
+    assert calls[0] == "repo init ns" and calls[1].startswith("commit ") and calls[1].endswith("--replace") and calls[2] == "push", calls
+    sent = json.load(open(f"{d}/sent.json"))["records"]
+    assert sent == [{"id": "audius:track:1", "type": TAG, "payload": f}], sent
+    assert json.load(open(f"{d}/stage/volume_1_tracks.json")) == nodes
 print("ok")

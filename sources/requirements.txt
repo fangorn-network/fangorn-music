@@ -1,1 +1,0 @@
-quickbeam @ git+https://github.com/fangorn-network/embeddings@tony/dev
