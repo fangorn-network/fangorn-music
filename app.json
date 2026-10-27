@@ -1,10 +1,11 @@
 {
- "app": "my-app",
+ "app": "fangorn-music",
  "name": "my-app",
  "description": "One sentence: what is in here, and who it is for.",
  "network": "baseSepolia",
  "site": {
-  "project": "my-app",
+  "project": "fangorn-music",
+  "url": "https://music.fangorn.network",
   "examples": []
  },
  "tags": [],
