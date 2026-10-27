@@ -1,28 +1,36 @@
 {
  "app": "fangorn-music",
- "name": "my-app",
- "description": "One sentence: what is in here, and who it is for.",
+ "name": "Fangorn Music",
+ "description": "The 50,000 most-played tracks on Audius, searchable by vibe: describe a moment or a mood and get tracks to play.",
  "network": "baseSepolia",
  "site": {
   "project": "fangorn-music",
   "url": "https://music.fangorn.network",
-  "examples": []
+  "examples": ["Driving to the beach", "Girls night out", "Party at my house"]
  },
- "tags": [],
+ "tags": ["music", "audius"],
  "types": {
-  "my-app.item.v1": {
-   "description": "One item: what a record is, in the words a searcher would use.",
+  "fangorn-music.track.v1": {
+   "description": "One track on Audius: its title and artist, genre, mood, tags, tempo and key, how often it is played, and a link to play it.",
    "role_map": {
-    "identity": "id",
+    "identity": "track_id",
     "title": "title",
-    "tags": ["tags"],
-    "text": ["text"]
+    "subtitle": "artist",
+    "tags": ["genre", "mood", "tags"],
+    "text": ["text"],
+    "measures": ["plays", "bpm", "duration"],
+    "temporal": "release_date"
    },
    "presentation": {
-    "types": { "my-app.item.v1": { "singular": "item", "plural": "items" } },
-    "facets": ["tags"]
+    "types": { "fangorn-music.track.v1": { "singular": "track", "plural": "tracks" } },
+    "facets": ["genre", "mood"],
+    "externalUrl": { "fangorn-music.track.v1": "{url}" }
    }
   }
  },
- "sources": []
+ "sources": [
+  { "namespace": "audius-tracks",
+    "command": ["${PYTHON:-.venv/bin/python}", "sources/audius_dump.py",
+                "--output-dir", ".ship/stage/audius-tracks", "--cache-dir", ".ship/cache/audius-tracks"] }
+ ]
 }

@@ -1,0 +1,8 @@
+{"id":"beach","q":"Driving to the beach","expect":{"match":{"mood|tags|genre":"upbeat|easygoing|cool|peaceful|energizing|excited|summer|beach|sun|chill|tropical"},"not":{"match":{"mood":"^(aggressive|brooding|melancholy|gritty)$"}}},"min":0.6,"goal":"vibe"}
+{"id":"girls-night","q":"Girls night out","expect":{"match":{"genre|mood":"pop|dance|house|r&b|disco|upbeat|sensual|empowering|excited"}},"min":0.6,"goal":"vibe"}
+{"id":"house-party","q":"Party at my house","expect":{"match":{"genre|mood|tags":"house|electronic|dance|edm|hip-hop|trap|energizing|excited|rowdy|upbeat|party|club"},"not":{"match":{"mood":"^(peaceful|melancholy|tender|sentimental)$"}}},"min":0.6,"goal":"vibe"}
+{"id":"study-lofi","q":"Late night lofi to study to","expect":{"match":{"genre|tags":"lo-?fi"}},"min":0.6,"goal":"vibe"}
+{"id":"gym-dubstep","q":"Dark heavy dubstep for the gym","expect":{"match":{"genre|tags":"dubstep|riddim|tearout|bass"},"not":{"match":{"mood":"^(peaceful|tender|romantic)$"}}},"min":0.6,"goal":"vibe"}
+{"id":"no-wallets","kind":"records","expect":{"match":{"wallet":"."}},"max_pct":0,"hard":true,"goal":"vibe"}
+{"id":"no-genre","kind":"records","expect":{"not":{"match":{"genre":"."}}},"max_pct":1,"goal":"vibe"}
+{"id":"audius-link","kind":"records","expect":{"not":{"match":{"url":"/^https:\\/\\/audius\\.co\\/[^/]+\\/[^/]+$/"}}},"max_pct":0,"goal":"vibe"}
