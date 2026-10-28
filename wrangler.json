@@ -8,5 +8,6 @@
  "ai": { "binding": "AI" },
  "triggers": { "crons": ["*/5 * * * *"] },
  "alias": { "@huggingface/transformers": "./node_modules/@fangorn-network/westmarch/site/no-model.js" },
- "vars": { "IPFS_GATEWAY": "https://green-reasonable-heron-957.mypinata.cloud" }
+ "vars": { "IPFS_GATEWAY": "https://green-reasonable-heron-957.mypinata.cloud" },
+"observability": { "enabled": true }
 }
