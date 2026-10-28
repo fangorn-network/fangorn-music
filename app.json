@@ -6,6 +6,8 @@
  "site": {
   "project": "fangorn-music",
   "url": "https://music.fangorn.network",
+  "pages": "app/dist",
+  "agent": "app/dist/agent.js",
   "examples": ["Driving to the beach", "Girls night out", "Party at my house"]
  },
  "tags": ["music", "audius"],

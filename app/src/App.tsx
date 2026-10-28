@@ -1,0 +1,142 @@
+import { useEffect, useState } from 'react';
+import { SourceGlyphSprites } from './components/SourceBadge';
+import KernelStrip from './components/KernelStrip';
+import NowPlaying from './components/NowPlaying';
+import Onboarding from './components/Onboarding';
+import SearchBar from './components/SearchBar';
+import { kernelSnapshot, onProgress, ready, type Progress } from './lib/client';
+import { useKernel } from './lib/kernel';
+import { usePlaylists } from './lib/playlists.tsx';
+import { AgentTools } from './lib/webmcp.tsx';
+import { goAbout, goHome, goPlaylists, goPrivacy } from './lib/router';
+import { useRoute } from './lib/router';
+import type { Stats } from './lib/types';
+import About from './views/About';
+import Entity from './views/Entity';
+import Playlists from './views/Playlists';
+import Privacy from './views/Privacy';
+import Home from './views/Home';
+import Search from './views/Search';
+
+export default function App() {
+  const route = useRoute();
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [prog, setProg] = useState<Progress>({ phase: 'start', pct: 0 });
+  const [err, setErr] = useState<string | null>(null);
+  const { snap, refresh, onboarded } = useKernel();
+  const { playlists } = usePlaylists();
+  /** Pages that stand outside the graph UI, and outside the onboarding gate. */
+  const isStatic = route.view === 'about' || route.view === 'privacy';
+
+  useEffect(() => {
+    onProgress(setProg);
+    ready().then(setStats).catch((e) => setErr(e.message));
+  }, []);
+
+  return (
+    <div className="shell">
+      <SourceGlyphSprites />
+      <header className="topbar">
+        <button className="brand" onClick={goHome} aria-label="Home">
+          <span className="brand-mark">FANGORN MUSIC</span>
+          <span className="brand-sub">music by vibe, in your browser</span>
+        </button>
+        {stats && onboarded && !isStatic && route.view !== 'home' && (
+          <SearchBar initial={route.q} />
+        )}
+        {/* In the header rather than a footer: the fixed now-playing bar covers
+            the bottom of the viewport, and a privacy link nobody can find is not
+            meaningfully offered. Not gated on `stats` either — both must stay
+            reachable when the snapshot fails to load, which is exactly when
+            someone wants to know what this page is and what it stores. */}
+        <nav className="topnav">
+          {/* Gated on `onboarded` so it can't dead-end on the onboarding screen, but
+              shown at zero playlists — otherwise there is nowhere to go after the
+              first add, and the feature is undiscoverable. */}
+          {stats && onboarded && (
+            <button
+              className={`topnav-link ${route.view === 'playlists' ? 'is-on' : ''}`}
+              aria-current={route.view === 'playlists' ? 'page' : undefined}
+              onClick={() => goPlaylists()}
+            >
+              Playlists{playlists.length ? ` (${playlists.length})` : ''}
+            </button>
+          )}
+          <button
+            className={`topnav-link ${route.view === 'about' ? 'is-on' : ''}`}
+            aria-current={route.view === 'about' ? 'page' : undefined}
+            onClick={goAbout}
+          >
+            About
+          </button>
+          <button
+            className={`topnav-link ${route.view === 'privacy' ? 'is-on' : ''}`}
+            aria-current={route.view === 'privacy' ? 'page' : undefined}
+            onClick={goPrivacy}
+          >
+            Privacy
+          </button>
+        </nav>
+      </header>
+
+      <main className="main">
+        {err && (
+          <div className="empty">
+            <h3>Couldn't load the catalogue</h3>
+            <p>{err}</p>
+            <p style={{ marginTop: 12 }}>
+              <button className="playall" onClick={() => location.reload()}>Try again</button>
+            </p>
+          </div>
+        )}
+
+        {!stats && !err && (
+          <div className="loading">
+            <div className="spinner" />
+            <div className="bar"><i style={{ width: `${prog.pct}%` }} /></div>
+            <span>Loading the catalogue into your browser{prog.detail ? ` · ${prog.detail}` : '…'}</span>
+            <span style={{ fontSize: 13, color: 'var(--text-faint)', maxWidth: '46ch', textAlign: 'center' }}>
+              It comes to you once, and your browser keeps it. After this,
+              every search runs here and nothing you type is sent anywhere.
+            </span>
+          </div>
+        )}
+
+        {/* About and Privacy sit OUTSIDE the onboarding gate on purpose: someone
+            deciding whether to hand over their taste should be able to read what
+            this is and what it stores BEFORE doing so, not after. */}
+        {stats && route.view === 'about' && <About stats={stats} />}
+        {route.view === 'privacy' && <Privacy />}
+
+        {/* The snapshot has to be loaded first — the picker's options are read out
+            of the graph, and seeding needs the vectors it ranks over. */}
+        {stats && !isStatic && !onboarded && <Onboarding />}
+
+        {stats && !isStatic && onboarded && (
+          <>
+            {snap && (
+              <KernelStrip snap={snap} onReset={() => { void kernelSnapshot().then(refresh); }} />
+            )}
+            {route.view === 'home' && <Home stats={stats} />}
+            {route.view === 'search' && <Search q={route.q} />}
+            {route.view === 'entity' && <Entity id={route.id} />}
+            {route.view === 'playlists' && <Playlists id={route.id} share={route.share} />}
+          </>
+        )}
+      </main>
+
+      <NowPlaying />
+
+      {/* WebMCP: registers this tab's verbs for a browser-resident agent, and owns the
+          card that asks before an agent changes a playlist. Renders nothing and
+          registers nothing when no agent is present, which is almost every visitor.
+          Outside <main> for the same reason NowPlaying is — it is not a view.
+
+          Deliberately NOT gated on `stats`: the tools read the world through a ref, so
+          one registered now still sees the snapshot when it finishes loading. Gating
+          would mean an agent that opened the tab sees no tools at all until the
+          download finishes, and it has no way to know to look again. */}
+      <AgentTools />
+    </div>
+  );
+}
