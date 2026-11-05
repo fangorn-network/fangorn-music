@@ -6,7 +6,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@fangorn-network/westmarch": "2026.1028.4",
+    "@fangorn-network/westmarch": "0.1.2",
     "@fontsource-variable/figtree": "^5.3.0",
     "@huggingface/transformers": "^4.3.1",
     "@vitejs/plugin-react": "^6.1.2",

@@ -219,7 +219,7 @@ def publish(records, namespace, fangorn_bin, repo_dir):
         json.dump({"records": [{"id": r["name"], "type": TAG, "payload": r["fields"]} for r in records]}, f)
     cli = shlex.split(fangorn_bin)
     for step in (["repo", "init", namespace],
-                 ["commit", batch, "-m", f"audius dump: top {len(records)} tracks", "--replace"],
+                 ["commit", batch, "--replace"],
                  ["push"]):
         print(f"[audius] $ {' '.join(cli + step)}")
         if subprocess.run(cli + step, cwd=repo_dir).returncode:

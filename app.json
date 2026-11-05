@@ -3,6 +3,7 @@
  "name": "Fangorn Music",
  "description": "The 50,000 most-played tracks on Audius, searchable by vibe: describe a moment or a mood and get tracks to play.",
  "network": "baseSepolia",
+ "owner": "0x951f9e73FA32A83246782edb659ae1669C035BdF",
  "site": {
   "project": "fangorn-music",
   "url": "https://music.fangorn.network",
